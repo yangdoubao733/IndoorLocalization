@@ -51,6 +51,9 @@ class IndoorLocalizationGUI:
         self.device_tracker = None
         self.tracking_active = False
 
+        # 高精度模式配置
+        self._current_preset_config = None
+
         # 创建界面
         self._create_widgets()
 
@@ -424,6 +427,52 @@ Python版本: {sys.version.split()[0]}
         self.num_aps_var = tk.StringVar(value=str(len(FINGERPRINT_CONFIG['ap_positions'])))
         ttk.Label(param_frame, textvariable=self.num_aps_var).grid(row=6, column=1, sticky=tk.W, padx=5)
         ttk.Button(param_frame, text="配置AP位置", command=self.config_aps).grid(row=6, column=2, padx=5)
+
+        # 高精度射线追踪模式
+        ttk.Separator(param_frame, orient='horizontal').grid(row=7, column=0, columnspan=3, sticky=tk.EW, pady=10)
+
+        ttk.Label(param_frame, text="射线追踪模式:").grid(row=8, column=0, sticky=tk.W, pady=5)
+        self.high_precision_var = tk.BooleanVar(value=False)
+        hp_frame = ttk.Frame(param_frame)
+        hp_frame.grid(row=8, column=1, columnspan=2, sticky=tk.W, padx=5)
+        ttk.Checkbutton(
+            hp_frame,
+            text="启用高精度反射模式",
+            variable=self.high_precision_var,
+            command=self._toggle_high_precision
+        ).pack(side=tk.LEFT)
+
+        ttk.Label(param_frame, text="最大反射次数:").grid(row=9, column=0, sticky=tk.W, pady=5)
+        self.max_reflections_var = tk.StringVar(value="3")
+        self.max_reflections_entry = ttk.Entry(param_frame, textvariable=self.max_reflections_var, width=10, state=tk.DISABLED)
+        self.max_reflections_entry.grid(row=9, column=1, sticky=tk.W, padx=5)
+        self.max_reflections_label = ttk.Label(param_frame, text="(高精度模式)", foreground="gray")
+        self.max_reflections_label.grid(row=9, column=2, sticky=tk.W, padx=5)
+
+        ttk.Label(param_frame, text="默认材料:").grid(row=10, column=0, sticky=tk.W, pady=5)
+        self.default_material_var = tk.StringVar(value="concrete")
+        self.default_material_combo = ttk.Combobox(
+            param_frame,
+            textvariable=self.default_material_var,
+            width=15,
+            state='disabled',
+            values=['concrete', 'brick', 'wood', 'glass', 'metal', 'drywall']
+        )
+        self.default_material_combo.grid(row=10, column=1, sticky=tk.W, padx=5)
+
+        ttk.Label(param_frame, text="场景预设:").grid(row=11, column=0, sticky=tk.W, pady=5)
+        self.preset_scene_var = tk.StringVar(value="无")
+        self.preset_scene_combo = ttk.Combobox(
+            param_frame,
+            textvariable=self.preset_scene_var,
+            width=15,
+            state='disabled',
+            values=['无', '办公室', '地下室', '仓库', '住宅']
+        )
+        self.preset_scene_combo.grid(row=11, column=1, sticky=tk.W, padx=5)
+        self.preset_scene_combo.bind('<<ComboboxSelected>>', self._on_preset_selected)
+
+        ttk.Label(param_frame, text="提示: 高精度模式更精确但更慢", foreground="blue").grid(row=12, column=1, columnspan=2, sticky=tk.W, pady=5)
 
         # 构建按钮
         build_btn_frame = ttk.Frame(self.build_frame)
@@ -833,6 +882,47 @@ Python版本: {sys.version.split()[0]}
             self.z_max_entry.config(state=tk.NORMAL)
             self.z_spacing_entry.config(state=tk.NORMAL)
 
+    def _toggle_high_precision(self):
+        """切换高精度模式参数"""
+        enabled = self.high_precision_var.get()
+        state = tk.NORMAL if enabled else tk.DISABLED
+        combobox_state = 'readonly' if enabled else 'disabled'
+
+        self.max_reflections_entry.config(state=state)
+        self.default_material_combo.config(state=combobox_state)
+        self.preset_scene_combo.config(state=combobox_state)
+
+    def _on_preset_selected(self, event):
+        """场景预设选择回调"""
+        from material_config_example import (
+            OFFICE_CONFIG, BASEMENT_CONFIG,
+            WAREHOUSE_CONFIG, RESIDENTIAL_CONFIG
+        )
+
+        preset = self.preset_scene_var.get()
+        if preset == '办公室':
+            self.max_reflections_var.set("2")
+            self.default_material_var.set("drywall")
+            self._current_preset_config = OFFICE_CONFIG
+            self.log("已加载办公室场景预设配置")
+        elif preset == '地下室':
+            self.max_reflections_var.set("4")
+            self.default_material_var.set("concrete")
+            self._current_preset_config = BASEMENT_CONFIG
+            self.log("已加载地下室场景预设配置")
+        elif preset == '仓库':
+            self.max_reflections_var.set("3")
+            self.default_material_var.set("concrete")
+            self._current_preset_config = WAREHOUSE_CONFIG
+            self.log("已加载仓库场景预设配置")
+        elif preset == '住宅':
+            self.max_reflections_var.set("2")
+            self.default_material_var.set("brick")
+            self._current_preset_config = RESIDENTIAL_CONFIG
+            self.log("已加载住宅场景预设配置")
+        else:
+            self._current_preset_config = None
+
     def browse_model(self):
         """浏览模型文件"""
         filename = filedialog.askopenfilename(
@@ -945,6 +1035,16 @@ Python版本: {sys.version.split()[0]}
                 z_min = float(self.z_min_var.get())
                 z_max = float(self.z_max_var.get())
                 z_spacing = float(self.z_spacing_var.get())
+
+            # 高精度模式参数
+            high_precision = self.high_precision_var.get()
+            if high_precision:
+                max_reflections = int(self.max_reflections_var.get())
+                default_material = self.default_material_var.get()
+            else:
+                max_reflections = None
+                default_material = None
+
         except ValueError:
             messagebox.showerror("错误", "参数格式错误")
             return
@@ -971,10 +1071,32 @@ Python版本: {sys.version.split()[0]}
                 config['z_max'] = z_max
                 config['z_spacing'] = z_spacing
 
+                # 高精度模式：重新创建ray_tracer
+                ray_tracer_to_use = self.ray_tracer
+                if high_precision:
+                    self.log("步骤1.5: 配置高精度射线追踪模式...")
+                    em_config = EM_SIMULATION_CONFIG.copy()
+                    em_config['high_precision_mode'] = True
+                    em_config['max_reflections'] = max_reflections
+                    em_config['default_material'] = default_material
+
+                    # 如果选择了场景预设，使用预设配置
+                    if self._current_preset_config:
+                        self.log(f"使用场景预设配置: {self.preset_scene_var.get()}")
+                        em_config.update(self._current_preset_config)
+                    else:
+                        # 否则使用基本配置
+                        em_config['custom_materials'] = {}
+
+                    # 重新创建ray_tracer
+                    from src.simulation import create_ray_tracer
+                    ray_tracer_to_use = create_ray_tracer(self.model, em_config)
+                    self.log(f"高精度模式已启用 (最大反射次数: {max_reflections}, 默认材料: {default_material})")
+
                 self.log("步骤2: 创建指纹库构建器...")
                 # 手动构建以支持进度回调（使用批量模式加速）
                 from src.fingerprint.builder import FingerprintBuilder
-                builder = FingerprintBuilder(self.model, self.ray_tracer, config)
+                builder = FingerprintBuilder(self.model, ray_tracer_to_use, config)
 
                 self.log("步骤3: 开始构建指纹库（批量模式）...")
                 self.fingerprint_db = builder.build(
