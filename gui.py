@@ -363,8 +363,29 @@ Python版本: {sys.version.split()[0]}
     def _create_build_tab(self):
         """创建构建指纹库选项卡"""
 
+        # 创建Canvas和滚动条来支持页面滚动
+        build_canvas = tk.Canvas(self.build_frame)
+        build_scrollbar = ttk.Scrollbar(self.build_frame, orient="vertical", command=build_canvas.yview)
+        scrollable_build_frame = ttk.Frame(build_canvas)
+
+        scrollable_build_frame.bind(
+            "<Configure>",
+            lambda e: build_canvas.configure(scrollregion=build_canvas.bbox("all"))
+        )
+
+        build_canvas.create_window((0, 0), window=scrollable_build_frame, anchor="nw")
+        build_canvas.configure(yscrollcommand=build_scrollbar.set)
+
+        build_canvas.pack(side="left", fill="both", expand=True)
+        build_scrollbar.pack(side="right", fill="y")
+
+        # 绑定鼠标滚轮事件
+        def _on_mousewheel(event):
+            build_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        build_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
         # 模型加载区域
-        model_frame = ttk.LabelFrame(self.build_frame, text="模型加载", padding=10)
+        model_frame = ttk.LabelFrame(scrollable_build_frame, text="模型加载", padding=10)
         model_frame.pack(fill=tk.X, padx=10, pady=10)
 
         ttk.Label(model_frame, text="3D模型文件:").grid(row=0, column=0, sticky=tk.W, pady=5)
@@ -378,7 +399,7 @@ Python版本: {sys.version.split()[0]}
         ttk.Button(model_frame, text="加载模型", command=self.load_model_action, width=15).grid(row=2, column=1, pady=10)
 
         # 指纹库参数区域
-        param_frame = ttk.LabelFrame(self.build_frame, text="指纹库参数", padding=10)
+        param_frame = ttk.LabelFrame(scrollable_build_frame, text="指纹库参数", padding=10)
         param_frame.pack(fill=tk.X, padx=10, pady=10)
 
         # 定位模式选择
@@ -474,8 +495,41 @@ Python版本: {sys.version.split()[0]}
 
         ttk.Label(param_frame, text="提示: 高精度模式更精确但更慢", foreground="blue").grid(row=12, column=1, columnspan=2, sticky=tk.W, pady=5)
 
+        # 多径传播模式
+        ttk.Separator(param_frame, orient='horizontal').grid(row=13, column=0, columnspan=3, sticky=tk.EW, pady=10)
+
+        ttk.Label(param_frame, text="多径传播追踪:").grid(row=14, column=0, sticky=tk.W, pady=5)
+        self.multipath_var = tk.BooleanVar(value=False)
+        mp_frame = ttk.Frame(param_frame)
+        mp_frame.grid(row=14, column=1, columnspan=2, sticky=tk.W, padx=5)
+        ttk.Checkbutton(
+            mp_frame,
+            text="启用多径传播模式",
+            variable=self.multipath_var,
+            command=self._toggle_multipath
+        ).pack(side=tk.LEFT)
+
+        ttk.Label(param_frame, text="射线数量:").grid(row=15, column=0, sticky=tk.W, pady=5)
+        self.num_rays_var = tk.StringVar(value="360")
+        self.num_rays_entry = ttk.Entry(param_frame, textvariable=self.num_rays_var, width=10, state=tk.DISABLED)
+        self.num_rays_entry.grid(row=15, column=1, sticky=tk.W, padx=5)
+        self.num_rays_label = ttk.Label(param_frame, text="(多径模式)", foreground="gray")
+        self.num_rays_label.grid(row=15, column=2, sticky=tk.W, padx=5)
+
+        ttk.Label(param_frame, text="接收容差 (米):").grid(row=16, column=0, sticky=tk.W, pady=5)
+        self.rx_tolerance_var = tk.StringVar(value="0.3")
+        self.rx_tolerance_entry = ttk.Entry(param_frame, textvariable=self.rx_tolerance_var, width=10, state=tk.DISABLED)
+        self.rx_tolerance_entry.grid(row=16, column=1, sticky=tk.W, padx=5)
+
+        ttk.Label(param_frame, text="功率阈值 (dBm):").grid(row=17, column=0, sticky=tk.W, pady=5)
+        self.power_threshold_var = tk.StringVar(value="-100.0")
+        self.power_threshold_entry = ttk.Entry(param_frame, textvariable=self.power_threshold_var, width=10, state=tk.DISABLED)
+        self.power_threshold_entry.grid(row=17, column=1, sticky=tk.W, padx=5)
+
+        ttk.Label(param_frame, text="提示: 多径模式需同时启用高精度模式，计算最慢但精度最高", foreground="blue").grid(row=18, column=1, columnspan=2, sticky=tk.W, pady=5)
+
         # 构建按钮
-        build_btn_frame = ttk.Frame(self.build_frame)
+        build_btn_frame = ttk.Frame(scrollable_build_frame)
         build_btn_frame.pack(fill=tk.X, padx=10, pady=10)
 
         self.build_btn = ttk.Button(
@@ -494,11 +548,11 @@ Python版本: {sys.version.split()[0]}
         ).pack(side=tk.LEFT, padx=5)
 
         # 进度条
-        self.build_progress = ttk.Progressbar(self.build_frame, mode='determinate', maximum=100)
+        self.build_progress = ttk.Progressbar(scrollable_build_frame, mode='determinate', maximum=100)
         self.build_progress.pack(fill=tk.X, padx=10, pady=5)
 
         # 进度标签
-        self.build_progress_label = ttk.Label(self.build_frame, text="", foreground="gray")
+        self.build_progress_label = ttk.Label(scrollable_build_frame, text="", foreground="gray")
         self.build_progress_label.pack(padx=10, pady=2)
 
     def _create_locate_tab(self):
@@ -892,6 +946,23 @@ Python版本: {sys.version.split()[0]}
         self.default_material_combo.config(state=combobox_state)
         self.preset_scene_combo.config(state=combobox_state)
 
+    def _toggle_multipath(self):
+        """切换多径传播模式参数"""
+        enabled = self.multipath_var.get()
+        state = tk.NORMAL if enabled else tk.DISABLED
+
+        self.num_rays_entry.config(state=state)
+        self.rx_tolerance_entry.config(state=state)
+        self.power_threshold_entry.config(state=state)
+
+        # 多径模式需要高精度模式
+        if enabled and not self.high_precision_var.get():
+            messagebox.showwarning("警告", "多径传播模式需要同时启用高精度反射模式")
+            self.multipath_var.set(False)
+            self.num_rays_entry.config(state=tk.DISABLED)
+            self.rx_tolerance_entry.config(state=tk.DISABLED)
+            self.power_threshold_entry.config(state=tk.DISABLED)
+
     def _on_preset_selected(self, event):
         """场景预设选择回调"""
         from material_config_example import (
@@ -1045,6 +1116,17 @@ Python版本: {sys.version.split()[0]}
                 max_reflections = None
                 default_material = None
 
+            # 多径传播模式参数
+            multipath_enabled = self.multipath_var.get()
+            if multipath_enabled:
+                num_rays = int(self.num_rays_var.get())
+                rx_tolerance = float(self.rx_tolerance_var.get())
+                power_threshold_dbm = float(self.power_threshold_var.get())
+            else:
+                num_rays = None
+                rx_tolerance = None
+                power_threshold_dbm = None
+
         except ValueError:
             messagebox.showerror("错误", "参数格式错误")
             return
@@ -1071,27 +1153,42 @@ Python版本: {sys.version.split()[0]}
                 config['z_max'] = z_max
                 config['z_spacing'] = z_spacing
 
-                # 高精度模式：重新创建ray_tracer
+                # 高精度模式或多径模式：重新创建ray_tracer
                 ray_tracer_to_use = self.ray_tracer
-                if high_precision:
-                    self.log("步骤1.5: 配置高精度射线追踪模式...")
+                if high_precision or multipath_enabled:
+                    self.log("步骤1.5: 配置射线追踪模式...")
                     em_config = EM_SIMULATION_CONFIG.copy()
-                    em_config['high_precision_mode'] = True
-                    em_config['max_reflections'] = max_reflections
-                    em_config['default_material'] = default_material
 
-                    # 如果选择了场景预设，使用预设配置
-                    if self._current_preset_config:
-                        self.log(f"使用场景预设配置: {self.preset_scene_var.get()}")
-                        em_config.update(self._current_preset_config)
-                    else:
-                        # 否则使用基本配置
-                        em_config['custom_materials'] = {}
+                    if high_precision:
+                        em_config['high_precision_mode'] = True
+                        em_config['max_reflections'] = max_reflections
+                        em_config['default_material'] = default_material
+
+                        # 如果选择了场景预设，使用预设配置
+                        if self._current_preset_config:
+                            self.log(f"使用场景预设配置: {self.preset_scene_var.get()}")
+                            em_config.update(self._current_preset_config)
+                        else:
+                            # 否则使用基本配置
+                            em_config['custom_materials'] = {}
+
+                        self.log(f"高精度模式已启用 (最大反射次数: {max_reflections}, 默认材料: {default_material})")
+
+                    if multipath_enabled:
+                        em_config['multipath_enabled'] = True
+                        em_config['num_rays'] = num_rays
+                        em_config['rx_tolerance'] = rx_tolerance
+                        em_config['power_threshold_dbm'] = power_threshold_dbm
+                        # 多径模式必须启用高精度
+                        em_config['high_precision_mode'] = True
+                        if not high_precision:
+                            em_config['max_reflections'] = 3
+                            em_config['default_material'] = 'concrete'
+                        self.log(f"多径传播模式已启用 (射线数: {num_rays}, 接收容差: {rx_tolerance}m, 功率阈值: {power_threshold_dbm}dBm)")
 
                     # 重新创建ray_tracer
                     from src.simulation import create_ray_tracer
                     ray_tracer_to_use = create_ray_tracer(self.model, em_config)
-                    self.log(f"高精度模式已启用 (最大反射次数: {max_reflections}, 默认材料: {default_material})")
 
                 self.log("步骤2: 创建指纹库构建器...")
                 # 手动构建以支持进度回调（使用批量模式加速）
